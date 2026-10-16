@@ -67,7 +67,6 @@
             text-align: center;
         }
 
-        /* === ДОСКА (под видео) === */
         .board-wrap {
             background: white;
             border-radius: 8px;
@@ -107,21 +106,19 @@
             touch-action: none;
         }
 
-        /* === ОВЕРЛЕЙ (рисование везде) === */
         canvas#overlay {
             position: fixed;
             top: 0; left: 0;
             width: 100vw; height: 100vh;
-            pointer-events: none;      /* по умолчанию клики проходят сквозь */
+            pointer-events: none;
             z-index: 9999;
             touch-action: none;
         }
         canvas#overlay.active {
-            pointer-events: auto;       /* когда включён режим рисования */
+            pointer-events: auto;
             cursor: crosshair;
         }
 
-        /* Панель рисования */
         .draw-panel {
             position: fixed;
             top: 15px; right: 15px;
@@ -151,7 +148,6 @@
             background: none; cursor: pointer;
         }
 
-        /* === ЧАТ === */
         .chat {
             width: 300px;
             max-width: 100%;
@@ -201,7 +197,6 @@
 
     <div class="layout">
         <div class="left-col">
-            <!-- ВИДЕО -->
             <div class="player-wrap">
                 <div id="player"></div>
                 <div class="my-controls">
@@ -213,7 +208,6 @@
                 </div>
             </div>
 
-            <!-- ДОСКА -->
             <div class="board-wrap">
                 <div class="board-header">
                     <span class="title">🎨 Совместная доска</span>
@@ -224,7 +218,6 @@
             </div>
         </div>
 
-        <!-- ЧАТ -->
         <div class="chat">
             <div class="chat-header">💬 Чат</div>
             <div class="chat-messages" id="chatMessages"></div>
@@ -236,10 +229,8 @@
         </div>
     </div>
 
-    <!-- ОВЕРЛЕЙ поверх всего -->
     <canvas id="overlay"></canvas>
 
-    <!-- Панель рисования -->
     <div class="draw-panel">
         <input type="color" id="overlayColor" value="#ff0000">
         <button id="btnDraw" onclick="toggleDraw()">✏️ Рисовать</button>
@@ -253,6 +244,7 @@
         let suppress = false;
         let ytPlayer = null;
         let duration = 0;
+        let lastSentState = null; // защита от повторной отправки одного и того же состояния
         const statusDiv = document.getElementById('status');
         const seekBar = document.getElementById('seekBar');
         const timeLabel = document.getElementById('timeLabel');
@@ -260,7 +252,7 @@
         const chatInput = document.getElementById('chatInput');
         const nicknameInput = document.getElementById('nickname');
 
-        // === ДОСКА (под видео) ===
+        // === ДОСКА ===
         const canvas = document.getElementById('board');
         const ctx = canvas.getContext('2d');
         const colorPicker = document.getElementById('colorPicker');
@@ -277,14 +269,13 @@
             c.stroke();
         }
 
-        // === ОВЕРЛЕЙ (поверх всего) ===
+        // === ОВЕРЛЕЙ ===
         const overlay = document.getElementById('overlay');
         const octx = overlay.getContext('2d');
         const overlayColor = document.getElementById('overlayColor');
         let overlayDrawing = false;
         let oLastX = 0, oLastY = 0;
 
-        // Подгоняем размер оверлея под окно
         function resizeOverlay() {
             overlay.width = window.innerWidth;
             overlay.height = window.innerHeight;
@@ -292,7 +283,6 @@
         resizeOverlay();
         window.addEventListener('resize', resizeOverlay);
 
-        // Включение/выключение режима рисования
         let drawMode = false;
         function toggleDraw() {
             drawMode = !drawMode;
@@ -308,7 +298,6 @@
             }
         }
 
-        // Рисование на оверлее — мышь
         overlay.addEventListener('mousedown', (e) => {
             if (!drawMode) return;
             overlayDrawing = true;
@@ -317,8 +306,7 @@
         });
         overlay.addEventListener('mousemove', (e) => {
             if (!overlayDrawing || !drawMode) return;
-            const x = e.clientX;
-            const y = e.clientY;
+            const x = e.clientX, y = e.clientY;
             const color = overlayColor.value;
             drawLineOn(octx, oLastX, oLastY, x, y, color);
             sendDraw('overlay', oLastX, oLastY, x, y, color);
@@ -327,7 +315,6 @@
         overlay.addEventListener('mouseup', () => { overlayDrawing = false; });
         overlay.addEventListener('mouseleave', () => { overlayDrawing = false; });
 
-        // Рисование на оверлее — тач
         overlay.addEventListener('touchstart', (e) => {
             if (!drawMode) return;
             e.preventDefault();
@@ -347,18 +334,16 @@
         }, { passive: false });
         overlay.addEventListener('touchend', () => { overlayDrawing = false; });
 
-        // Отправка рисования на сервер
         function sendDraw(target, x1, y1, x2, y2, color) {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             ws.send(JSON.stringify({
                 action: 'draw',
-                target: target,    // 'board' или 'overlay'
+                target: target,
                 x1, y1, x2, y2,
                 color
             }));
         }
 
-        // Очистка оверлея
         function clearOverlay() {
             octx.clearRect(0, 0, overlay.width, overlay.height);
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -366,7 +351,7 @@
             }
         }
 
-        // === ДОСКА: рисование (мышь и тач) ===
+        // === ДОСКА: рисование ===
         canvas.addEventListener('mousedown', (e) => {
             drawing = true;
             const rect = canvas.getBoundingClientRect();
@@ -438,13 +423,24 @@
             updateTimeLabel();
             setInterval(tick, 500);
         }
+
+        // ВАЖНО: больше НЕ отправляем команды из onStateChange.
+        // Это устраняет зацикливание.
         function onPlayerStateChange(event) {
-            if (suppress) return;
-            if (event.data === YT.PlayerState.PLAYING) sendAction('play', ytPlayer.getCurrentTime());
-            else if (event.data === YT.PlayerState.PAUSED) sendAction('pause', ytPlayer.getCurrentTime());
+            // Ничего не отправляем. Команды уходят только из localPlay/localPause.
         }
-        function localPlay() { if (ytPlayer) ytPlayer.playVideo(); }
-        function localPause() { if (ytPlayer) ytPlayer.pauseVideo(); }
+
+        // Теперь кнопки сами применяют действие локально И отправляют команду
+        function localPlay() {
+            if (!ytPlayer) return;
+            ytPlayer.playVideo();
+            sendAction('play', ytPlayer.getCurrentTime());
+        }
+        function localPause() {
+            if (!ytPlayer) return;
+            ytPlayer.pauseVideo();
+            sendAction('pause', ytPlayer.getCurrentTime());
+        }
         function onSeekInput(value) {
             if (!ytPlayer || !duration) return;
             const time = (value / 100) * duration;
@@ -480,7 +476,6 @@
                 addSystemMessage(`Вы вошли в комнату как "${nicknameInput.value}"`);
             };
 
-            // Пинг каждые 10 секунд, чтобы сервис не засыпал
             setInterval(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ action: 'ping' }));
@@ -504,7 +499,7 @@
                 if (msg.action === 'clearBoard') { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
                 if (msg.action === 'clearOverlay') { octx.clearRect(0, 0, overlay.width, overlay.height); return; }
 
-                // плеер
+                // Плеер: применяем удалённую команду
                 if (!ytPlayer || !ytPlayer.seekTo) return;
                 suppress = true;
                 if (msg.action === 'play') {
@@ -516,7 +511,8 @@
                 } else if (msg.action === 'seek') {
                     ytPlayer.seekTo(msg.value, true);
                 }
-                setTimeout(() => { suppress = false; }, 300);
+                // Увеличено до 1000 мс, чтобы события YouTube успели «улечься»
+                setTimeout(() => { suppress = false; }, 1000);
             };
 
             ws.onclose = () => {
