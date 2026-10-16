@@ -26,7 +26,6 @@ async def get_video():
 async def websocket_endpoint(websocket: WebSocket, room_id: str):
     await websocket.accept()
 
-    # Инициализируем комнату и историю
     if room_id not in rooms:
         rooms[room_id] = set()
     if room_id not in history:
@@ -48,7 +47,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
         while True:
             data = await websocket.receive_text()
 
-            # Если это чат — сохраняем в историю
             try:
                 parsed = json.loads(data)
                 if parsed.get("action") == "chat":
@@ -56,7 +54,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             except Exception:
                 pass
 
-            # Пересылаем всем в комнате (включая отправителя)
             for client in list(rooms[room_id]):
                 await client.send_text(data)
     except WebSocketDisconnect:
@@ -64,5 +61,3 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
         print(f"🔴 Отключение: {room_id}. Осталось: {len(rooms[room_id])}")
         if not rooms[room_id]:
             del rooms[room_id]
-            # Если хотите очищать историю при опустошении комнаты — раскомментируйте:
-            # del history[room_id]
