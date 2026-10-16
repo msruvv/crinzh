@@ -471,13 +471,21 @@
         // === WebSocket ===
         function connect() {
             const room = document.getElementById('roomId').value;
-            ws = new WebSocket(`ws://localhost:8000/ws/${room}`);
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${wsProtocol}//${location.host}/ws/${room}`);
 
             ws.onopen = () => {
                 statusDiv.textContent = `Статус: Подключено к комнате "${room}"`;
                 statusDiv.style.color = 'green';
                 addSystemMessage(`Вы вошли в комнату как "${nicknameInput.value}"`);
             };
+
+            // Пинг каждые 10 секунд, чтобы сервис не засыпал
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: 'ping' }));
+                }
+            }, 10000);
 
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
