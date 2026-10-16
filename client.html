@@ -16,6 +16,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
         }
         input, button { padding: 8px 12px; margin: 0; }
         #status { color: #666; font-size: 0.9em; margin-left: auto; }
@@ -208,6 +209,8 @@
         <label>Комната: <input id="roomId" value="test-room" size="15"></label>
         <label>Ник: <input id="nickname" value="Гость" size="10"></label>
         <button onclick="connect()">Подключиться</button>
+        <label>Ссылка YouTube: <input id="videoUrl" placeholder="https://youtube.com/watch?v=..." size="30"></label>
+        <button onclick="changeVideo()">Загрузить</button>
         <div id="status">Статус: Не подключено</div>
     </div>
 
@@ -487,6 +490,36 @@
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
 
+        // === Смена видео по ссылке ===
+        function extractVideoId(url) {
+            const patterns = [
+                /[?&]v=([^&]+)/,
+                /youtu\.be\/([^?&]+)/,
+                /youtube\.com\/embed\/([^?&]+)/
+            ];
+            for (const p of patterns) {
+                const m = url.match(p);
+                if (m) return m[1];
+            }
+            return null;
+        }
+
+        function changeVideo() {
+            const url = document.getElementById('videoUrl').value.trim();
+            if (!url) return;
+            const videoId = extractVideoId(url);
+            if (!videoId) {
+                alert('Не удалось распознать ссылку YouTube');
+                return;
+            }
+            if (ytPlayer && ytPlayer.loadVideoById) {
+                suppress = true;
+                ytPlayer.loadVideoById(videoId);
+                setTimeout(() => { suppress = false; }, 1500);
+            }
+            sendAction('changeVideo', 0, { videoId });
+        }
+
         // === WebSocket ===
         function connect() {
             const room = document.getElementById('roomId').value;
@@ -509,7 +542,6 @@
                 const msg = JSON.parse(event.data);
                 console.log('ПОЛУЧЕНО ОТ СЕРВЕРА:', msg);
 
-                // История чата (приходит при подключении)
                 if (msg.action === 'chatHistory') {
                     for (const m of msg.messages) {
                         addChatMessage(m.nick, m.text);
@@ -520,6 +552,16 @@
                 if (msg.action === 'ping') return;
 
                 if (msg.action === 'chat') { addChatMessage(msg.nick, msg.text); return; }
+
+                // Смена видео
+                if (msg.action === 'changeVideo') {
+                    if (ytPlayer && ytPlayer.loadVideoById) {
+                        suppress = true;
+                        ytPlayer.loadVideoById(msg.videoId);
+                        setTimeout(() => { suppress = false; }, 1500);
+                    }
+                    return;
+                }
 
                 if (msg.action === 'draw') {
                     if (msg.target === 'overlay') {
@@ -564,9 +606,9 @@
             setTimeout(() => { suppress = false; }, 1000);
         }
 
-        function sendAction(action, value) {
+        function sendAction(action, value, extra = {}) {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            ws.send(JSON.stringify({ action, value: value || 0 }));
+            ws.send(JSON.stringify({ action, value: value || 0, ...extra }));
         }
 
         // === ЧАТ ===
