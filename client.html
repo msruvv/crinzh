@@ -244,7 +244,8 @@
         let suppress = false;
         let ytPlayer = null;
         let duration = 0;
-        let lastSentState = null; // защита от повторной отправки одного и того же состояния
+        let pendingCommands = []; // команды, пришедшие до готовности плеера
+
         const statusDiv = document.getElementById('status');
         const seekBar = document.getElementById('seekBar');
         const timeLabel = document.getElementById('timeLabel');
@@ -417,20 +418,28 @@
                 }
             });
         }
+
         function onPlayerReady() {
             statusDiv.textContent = 'YouTube Player готов. Подключитесь к комнате.';
             duration = ytPlayer.getDuration() || 0;
             updateTimeLabel();
             setInterval(tick, 500);
+
+            // Применяем команды, которые пришли до готовности плеера
+            if (pendingCommands.length > 0) {
+                console.log('Применяю отложенные команды:', pendingCommands.length);
+                for (const cmd of pendingCommands) {
+                    applyRemoteCommand(cmd);
+                }
+                pendingCommands = [];
+            }
         }
 
-        // ВАЖНО: больше НЕ отправляем команды из onStateChange.
-        // Это устраняет зацикливание.
+        // Ничего не отправляем из onStateChange — устраняет зацикливание
         function onPlayerStateChange(event) {
-            // Ничего не отправляем. Команды уходят только из localPlay/localPause.
+            // команды уходят только из localPlay/localPause
         }
 
-        // Теперь кнопки сами применяют действие локально И отправляют команду
         function localPlay() {
             if (!ytPlayer) return;
             ytPlayer.playVideo();
@@ -486,6 +495,9 @@
                 const msg = JSON.parse(event.data);
                 console.log('ПОЛУЧЕНО ОТ СЕРВЕРА:', msg);
 
+                // Игнорируем пинги
+                if (msg.action === 'ping') return;
+
                 if (msg.action === 'chat') { addChatMessage(msg.nick, msg.text); return; }
 
                 if (msg.action === 'draw') {
@@ -499,26 +511,37 @@
                 if (msg.action === 'clearBoard') { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
                 if (msg.action === 'clearOverlay') { octx.clearRect(0, 0, overlay.width, overlay.height); return; }
 
-                // Плеер: применяем удалённую команду
-                if (!ytPlayer || !ytPlayer.seekTo) return;
-                suppress = true;
-                if (msg.action === 'play') {
-                    if (msg.value) ytPlayer.seekTo(msg.value, true);
-                    ytPlayer.playVideo();
-                } else if (msg.action === 'pause') {
-                    if (msg.value) ytPlayer.seekTo(msg.value, true);
-                    ytPlayer.pauseVideo();
-                } else if (msg.action === 'seek') {
-                    ytPlayer.seekTo(msg.value, true);
+                // Плеер: если не готов — в очередь
+                if (!ytPlayer || !ytPlayer.seekTo) {
+                    console.log('Плеер не готов, сохраняю команду:', msg);
+                    pendingCommands.push(msg);
+                    return;
                 }
-                // Увеличено до 1000 мс, чтобы события YouTube успели «улечься»
-                setTimeout(() => { suppress = false; }, 1000);
+                applyRemoteCommand(msg);
             };
 
             ws.onclose = () => {
                 statusDiv.textContent = 'Статус: Соединение закрыто';
                 statusDiv.style.color = 'red';
             };
+        }
+
+        function applyRemoteCommand(msg) {
+            if (!ytPlayer || !ytPlayer.seekTo) {
+                pendingCommands.push(msg);
+                return;
+            }
+            suppress = true;
+            if (msg.action === 'play') {
+                if (msg.value) ytPlayer.seekTo(msg.value, true);
+                ytPlayer.playVideo();
+            } else if (msg.action === 'pause') {
+                if (msg.value) ytPlayer.seekTo(msg.value, true);
+                ytPlayer.pauseVideo();
+            } else if (msg.action === 'seek') {
+                ytPlayer.seekTo(msg.value, true);
+            }
+            setTimeout(() => { suppress = false; }, 1000);
         }
 
         function sendAction(action, value) {
